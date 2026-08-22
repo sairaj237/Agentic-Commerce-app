@@ -7,7 +7,9 @@ The AI agent is capable of conversing with the user, querying a catalog, dynamic
 ## 🌟 Features
 - **Conversational Checkout**: Order items via natural language (e.g., "I'd like to buy a coffee"). The AI automatically infers the Product ID and adds it to the cart.
 - **End-to-End Razorpay Integration**: Automatically triggers the official Razorpay checkout modal directly in the React frontend based on the AI's backend tool calls.
-- **Production-Grade Session Management**: Uses LangGraph's PostgreSQL Checkpointer (`PostgresSaver`) and a custom `CartItem` database to fully isolate memory and cart state per user `session_id`.
+- **Production-Grade Order Management System (OMS)**: Uses PostgreSQL Row-Level Locking (`with_for_update()`) to guarantee race-condition proof inventory tracking.
+- **Modular Architecture**: Clean separation of concerns across `config.py`, `agent.py`, `tasks.py`, and `routers/api.py`.
+- **Session Management**: Uses LangGraph's PostgreSQL Checkpointer (`PostgresSaver`) to fully isolate memory and cart state per user `session_id`.
 - **Security & Gatekeeping**: A strict `MAX_TRANSACTION_LIMIT` blocks the agent from initiating high-value transactions maliciously.
 - **Audit Logging**: Every financial action (adds to cart, checkouts, and blocks) is explicitly logged in `audit_log.txt` for full explainability.
 
@@ -26,7 +28,7 @@ The AI agent is capable of conversing with the user, querying a catalog, dynamic
 cd backend
 python -m venv venv
 source venv/bin/activate  # (or .\venv\Scripts\activate on Windows)
-pip install fastapi uvicorn requests python-dotenv langchain-core langchain-openai langgraph langgraph-checkpoint-sqlite razorpay sqlalchemy
+pip install fastapi uvicorn requests python-dotenv langchain-core langchain-openai langgraph psycopg_pool razorpay sqlalchemy
 ```
 
 **Environment Variables** (`backend/.env`):
@@ -58,13 +60,17 @@ npm run dev
 
 ### The Agentic Loop
 1. **Frontend Request**: The React app generates a unique UUID (`session_id`) and sends the user's message to the `/chat` endpoint.
-2. **Dynamic Prompting**: FastAPI fetches the user's isolated cart from SQLite and injects it directly into the Agent's system prompt.
-3. **Graph Execution**: LangGraph invokes the `agent_node` (hitting OpenRouter via raw requests to preserve reasoning state) and conditionally routes to the `tool_node` if tools are called.
+2. **Dynamic Prompting**: FastAPI fetches the user's isolated cart from PostgreSQL and injects it directly into the Agent's system prompt.
+3. **Graph Execution**: LangGraph invokes the `agent_node` (hitting OpenRouter via raw requests to preserve reasoning state).
 4. **Tool Execution**: 
    - `get_catalog()`: Queries the PostgreSQL `products` table.
-   - `add_to_cart()`: Safely adds items to the `cart_items` table linked to the `session_id`.
-   - `initiate_checkout()`: Checks the gatekeeper limit. If passed, hits the Razorpay API to generate an `order_id` and saves it to a pending checkout pool.
-5. **UI Trigger**: If a checkout is pending, the `/chat` endpoint attaches it to the JSON response. The React frontend intercepts this, dynamically loads Razorpay's `checkout.js`, and launches the payment modal over the chat.
+   - `add_to_cart()`: Safely adds items to the `cart_items` table linked to the `session_id`, optimistically checking inventory.
+   - `initiate_checkout()`: Checks the gatekeeper limit. If passed, it hits the Razorpay API to generate an `order_id`. **Crucially, it uses PostgreSQL Row-Level Locking (`with_for_update()`) to atomically lock product rows, strictly verify inventory, and decrement stock.** It moves the items into a `PENDING` Order.
+5. **UI Trigger**: The backend returns the `order_id`. The React frontend intercepts this, dynamically loads Razorpay's `checkout.js`, and launches the payment modal.
+
+### The Production OMS & Async Background Tasks
+- **Payment Verification**: When a user completes the payment, the frontend sends the payload to `POST /verify_payment`. The backend uses `razorpay.utility.verify_payment_signature` to cryptographically validate the payload before marking the Order as `PAID`.
+- **Automated Abandonment Cleanup**: A FastAPI background task (`tasks.py`) runs asynchronously every 20 seconds. It sweeps the database for any `PENDING` orders older than 1 minute (shortened for testing). If found, it automatically marks the order as `CANCELLED` and safely restores the inventory back to the `products` table.
 
 ## 🛡️ Security & Explainability
 All agent actions are logged to `backend/audit_log.txt`. 

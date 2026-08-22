@@ -139,7 +139,27 @@ def initiate_checkout(total_amount: float, config: RunnableConfig):
         audit_log("CHECKOUT_ERROR", f"[{session_id}] {str(e)}")
         return res
 
-tools = [get_catalog, add_to_cart, initiate_checkout]
+@tool
+def check_order_status(order_id: str = None, config: RunnableConfig = None):
+    """Check the payment status of an order. If order_id is not provided, checks the most recent order for the user."""
+    session_id = config.get("configurable", {}).get("thread_id")
+    db = SessionLocal()
+    
+    if order_id:
+        order = db.query(Order).filter(Order.id == order_id, Order.session_id == session_id).first()
+    else:
+        # Get the most recent order for this session
+        order = db.query(Order).filter(Order.session_id == session_id).order_by(Order.created_at.desc()).first()
+        
+    if not order:
+        db.close()
+        return "No order found for this user."
+        
+    res = f"Order ID: {order.id}\nStatus: {order.status}"
+    db.close()
+    return res
+
+tools = [get_catalog, add_to_cart, initiate_checkout, check_order_status]
 openrouter_tools = [convert_to_openai_tool(t) for t in tools]
 
 # --- LangGraph Setup ---

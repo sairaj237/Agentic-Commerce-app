@@ -49,6 +49,7 @@ def chat(request: ChatRequest):
         "infer the ID from the catalog and assume a quantity of 1 unless specified. "
         "Use tools to add items to the cart. "
         "CRITICAL: NEVER call the initiate_checkout tool until you have explicitly asked the user if they are ready to checkout and they have confirmed. "
+        "If the user asks to check their order or payment status, use the check_order_status tool. "
         "Always use the Indian Rupee symbol (₹) for all prices and never use the dollar sign ($). "
         f"CURRENT CART CONTENTS: {cart_summary}. Calculate the total amount yourself from these contents before calling initiate_checkout."
     )
