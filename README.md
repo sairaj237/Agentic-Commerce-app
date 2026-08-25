@@ -80,3 +80,11 @@ Example Audit Trail:
 [2026-08-21T19:53:00] CHECKOUT_SUCCESS: [session-123] Created Razorpay order order_123 for 150.0 INR
 [2026-08-21T20:10:00] GATEKEEPER_BLOCKED: Transaction of 1250 exceeds limit of 500.0
 ```
+
+## 🔮 Future Scope (Harness Engineering)
+If we were to take this MVP to a true enterprise-scale production environment, the following harness features would be implemented:
+1. **Time-Travel Debugging & State Replay**: Leveraging LangGraph's `PostgresSaver` to build an admin UI that can step backward through any user's chat history to debug exactly why an LLM made a specific decision.
+2. **Automated Evaluation Datasets (Evals)**: Building a `pytest` harness with 500+ simulated conversations to run regression testing against the Gatekeeper before any prompt or model upgrades.
+3. **Fault-Tolerant Tool Wrappers**: Wrapping the Razorpay API tools in `Temporal.io` to automatically handle exponential backoffs if the payment gateway experiences downtime during checkout.
+4. **Decision-Trace Auditing**: Storing the LLM's full "Reasoning Trace" (inner monologue) into a data warehouse (like Snowflake/BigQuery) tied directly to the `order_id` for financial compliance auditing.
+5. **True Server-to-Server Webhooks**: Replacing the frontend-driven `/verify_payment` with a secure Ngrok-backed webhook to completely isolate payment verification from client-side manipulation.
